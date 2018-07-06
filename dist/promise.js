@@ -6,7 +6,7 @@
     } else if (typeof exports === "object" && typeof module !== "undefined") {
         module.exports = factory(root);
     } else {
-        // !root.Promise && (root.Promise = factory(root));
+        !root.Promise && (root.Promise = factory(root));
     }
 })(typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this, function (window) {
     var isFunction = function (v) {
