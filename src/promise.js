@@ -6,13 +6,16 @@
     } else if (typeof exports === "object" && typeof module !== "undefined") {
         module.exports = factory(root);
     } else {
-        !root.Promise && (root.Promise = factory(root));
+        // !root.Promise && (root.Promise = factory(root));
+        root.Promises = factory(root)
     }
 })(typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this, function (window) {
+
     var isFunction = function (v) {
         return typeof v === 'function'
     }
-    var getAsyncFunc = function () {
+
+    var asyncTask = (function () {
         return typeof process === 'object' &&
             process !== null &&
             typeof process.nextTick === 'function' &&
@@ -20,180 +23,213 @@
             typeof setImmediate === 'function' &&
             setImmediate ||
             setTimeout;
+    })()
+
+    var findIndex = function (arr, key) {
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] == key) return i
+        }
+        return false
     }
-    var asyncFn = getAsyncFunc()
 
-    
-    var _promise = function (callback) {
-        //记录生成实例的数目
-        this.speciality.modelCount++;
 
-        //mark the result of onResolve or onReject
-        var result
+    var isInstance = function (obj) {
+        return obj && obj instanceof Promises
+    }
 
+    var count = 0
+
+
+    var Promises = function (callback) {
+      
+        var fulfilled = false
+        var rejected = false
+
+        // 可延展性
+        var isThenAble = false
+
+        // 延迟对象
+        var deferreds = []
+
+        // onfulfilled or onrejected callback push deferreds stack
         this.then = function (onResolve, onReject) {
             if (isFunction(onResolve) || isFunction(onReject)) {
-                var item = {
+                deferreds.push({
                     onResolve: onResolve || null,
                     onReject: onReject || null
-                }
-                this.deferreds.push(item)
-                this.speciality.isThenAble = true
+                })
+                console.log(deferreds, count, '实例')
+                isThenAble = true
+            } else {
+                throw new Error('the arguments of \"promise.then\" can\'t be empty');
             }
-            return new _promise()
+            return new Promises()
         }
 
 
-        //create async mutation function
-        var createMutation = function (type, cb, vm) {
+        //create async mutation handler
+        var createMutationHandler = function (type, cb) {
             return function (value) {
-                if (value instanceof _promise) {
+                if (value instanceof Promises) {
                     throw new Error('the value of ' + type + ' should not construtor itself')
                 }
                 if (!value) return
-                asyncFn(function () {
-                    if (vm.speciality.isThenAble) {
-                        isFunction(cb) && cb.call(vm, value)
-                    }
+                asyncTask(function () {
+                    // console.log(isThenAble)
+                    isThenAble && isFunction(cb) && cb.call(null, value)
+                    // console.log(isThenAble, 'asyncTask')
                 })
             }
         }
 
-        var getDeferred = function (arr) {
+        var popDeferredsStack = function (arr) {
             return arr.length == 0 ? {} : arr.shift()
         }
 
-        var isInstance = function (obj) {
-            return obj && obj instanceof _promise || false
-        }
+        // mark the result of onResolve 
+        var result
+        // deferred object
+        var deferred
 
-        var resolve = createMutation('resolve', function (value) {
-            //async run
-            var deferred = getDeferred(this.deferreds)
-
+        var resolve = createMutationHandler('resolve', function (value) {
+            if (rejected) throw Error('can\'t not call resolve, promise is already rejected')
+            deferred = popDeferredsStack(deferreds)
             result = deferred.onResolve && deferred.onResolve(value)
-            //决定下一个mutation执行             
-            this.speciality.isThenAble = isInstance(result) || this.speciality.staticMode
-        }, this)
+            fulfilled = true
+            isThenAble = isInstance(result)
+        })
 
-        var reject = createMutation('reject', function (value) {
-            //async run
-            var deferred = getDeferred(this.deferreds)
+        var reject = createMutationHandler('reject', function (value) {
+            if (fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
+            deferred = popDeferredsStack(deferreds)
             deferred.onReject && deferred.onReject(value)
-            //终止后续promise执行   
-            this.speciality.isThenAble = false
-        }, this)
+            rejected = true
+            isThenAble = false
+        })
 
         callback && callback.call(null, resolve, reject)
     }
 
-    //延迟对象
-    _promise.prototype.deferreds = []
 
-    //promise特性对象
-    _promise.prototype.speciality = {
-        isThenAble: false,
-        modelCount: 0,
-        results: [],
-        staticMode: false
-    }
+    Promises.all = function (queue) {
+        if (!Array.isArray(queue)) return;
 
+        var results = []
+        var i = queue.length
+        var consume = i
+        var done = false
+        var item,
+            _resolve
 
-    _promise.all = function (queues) {
-        if (!queues || !Array.isArray(queues) || queues.length == 0) {
-            throw new TypeError('The 1st arguments must be array that has more than one element')
+        var onResovle = function (res) {
+            mutationProxy(res, this)
         }
 
-        var proto = this.prototype,
-            deferreds = proto.deferreds,
-            speciality = proto.speciality,
-            results = speciality.results,
-            done = null
-
-        speciality.staticMode = true
-
-        var pushResultsStack = function (v) {
-            v && results.push(v)
+        var onReject = function (err) {
+            mutationProxy(err, this, true)
         }
 
-        return new _promise(function (resolve) {
-            var distribute = function () {
-                var value = queues.shift()
-                if (value === void 0) {
-                    if (done) {
-                        deferreds.push(done)
-                        resolve(results)
-                    }
-                    return
-                }
-                if (value instanceof _promise) {
-                    value.then((res) => {
-                        pushResultsStack(res)
-                        distribute()
-                    }, (err) => {
-                        //假如发生错误，立即停止递归，记录错误并触发最外层的then回调
-                        pushResultsStack(err)
-                        proto.deferreds = [done]
-                        done = null
-                        resolve(results)
-                        return
-                    })
-                } else if (typeof value !== 'function') {
-                    pushResultsStack(value)
-                    distribute()
-                } else {
-                    throw new TypeError('The array member should not a function')
-                }
+        var mutationProxy = function (v, ins, isReject) {
+            if (done) return
+
+            var index = findIndex(queue, ins)
+            if (index === false) return
+            results[index] = v
+
+            var args = isReject ? [_resolve, results, true] : [_resolve, results]
+
+            untilDone.apply(null, args)
+        }
+
+
+        function untilDone(cb, result, ocurrError) {
+            consume--
+
+            if (ocurrError || !consume) {
+                cb(result)
+                done = true
             }
-            //确保promise.all.then最先执行
-            asyncFn(() => {
-                //mark the finally done Object
-                //移出promise.all.then里的回调，记录在done中
-                done = deferreds.shift()
-
-                //递归执行distribute，不同的值，不同逻辑处理，直到延迟队列为空或rejected停止
-                distribute()
-            })
-        })
-    }
-
-    _promise.race = function (queues) {
-        if (!queues || !Array.isArray(queues) || queues.length == 0) {
-            throw new TypeError('The 1st arguments must be array that has more than one element')
         }
 
-        var loop = 0,
-            isRuned = false,
-            currItem;
-        var proto = this.prototype
-        var deferreds = proto.deferreds
-        var speciality = proto.speciality
+        asyncTask(function () {
+            while (i--) {
+                item = queue[i]
+                if (isInstance(item)) {
+                    item.then(onResovle.bind(item), onReject.bind(item))
+                } else if (isFunction(item)) {
+                    //       
+                    continue;
+                } else {
+                    // ordinary value    
+                    results[i] = item
+                    untilDone(_resolve, results)
+                };
+            }
+        })
 
-        speciality.staticMode = true
-
-        return new _promise((resolve, reject) => {
-            asyncFn(() => {
-                var done = deferreds.shift()
-                while (currItem = queues[loop++]) {
-                    if (!(currItem instanceof _promise)) {
-                        throw new TypeError(
-                            'The 1st argument ’s content  must be instance of _promise')
-                    }
-                    currItem.then((res) => {
-                        if (isRuned) return
-                        proto.deferreds = [done]
-                        resolve(res)
-                        isRuned = true
-                    }, (err) => {
-                        if (isRuned) return
-                        proto.deferreds = [done]
-                        reject(err)
-                        isRuned = true
-                    })
-                }
-            })
+        return new Promises((resolve) => {
+            _resolve = resolve
         })
     }
 
-    return _promise
+
+    return Promises
 })
+
+// var p1 = new Promises((resovle, reject) => {
+//     setTimeout(() => {
+//         resovle('加速度')
+//     }, 500)
+// })
+
+// var p2 = new Promises((resovle) => {
+//     setTimeout(() => {
+//         resovle(800)
+//     }, 1000)
+// })
+
+// Promises.all([p1, 1, 5, {
+//     a: 666
+// }, p2]).then((result) => {
+//     console.log(result)
+// })
+
+
+
+
+
+var xixi = new Promises((resovle, reject) => {
+    setTimeout(() => {
+        resovle(1)
+        // reject(66)
+    }, 1000)
+})
+
+xixi.then((res) => {
+        console.log(res)
+        return new Promises(resovle => {
+            resovle(666666)
+        })
+    }, (err) => {
+        console.log(err)
+    })
+    .then((res) => {
+        console.log(res)
+        return new Promises(resovle => {
+            setTimeout(() => {
+                resovle(777777777)
+            }, 1000)
+        })
+    })
+    .then((res) => {
+        console.log(res)
+        return new Promises(resovle => {
+            resovle(8888888)
+        })
+    })
+    .then((res) => {
+        console.log(res)
+        return new Promises(resovle => {
+            resovle(99999999)
+        })
+    })
