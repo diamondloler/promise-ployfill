@@ -37,34 +37,37 @@
         return obj && obj instanceof Promises
     }
 
+    // 延迟对象
+    var deferreds = []
+
+    // 可延展性
+    var isThenAble = false
+
+    var staticMode = false
+
     var count = 0
 
-
     var Promises = function (callback) {
-      
+
         var fulfilled = false
         var rejected = false
 
-        // 可延展性
-        var isThenAble = false
+        this.id = count++
 
-        // 延迟对象
-        var deferreds = []
-
-        // onfulfilled or onrejected callback push deferreds stack
-        this.then = function (onResolve, onReject) {
-            if (isFunction(onResolve) || isFunction(onReject)) {
-                deferreds.push({
-                    onResolve: onResolve || null,
-                    onReject: onReject || null
-                })
-                console.log(deferreds, count, '实例')
-                isThenAble = true
-            } else {
-                throw new Error('the arguments of \"promise.then\" can\'t be empty');
+            // onfulfilled or onrejected callback push deferreds stack
+            this.then = function (onResolve, onReject) {
+                if (isFunction(onResolve) || isFunction(onReject)) {
+                    deferreds.push({
+                        onResolve: onResolve || null,
+                        onReject: onReject || null,
+                        id: this.id
+                    })
+                    isThenAble = true
+                } else {
+                    throw new Error('the arguments of \"promise.then\" can\'t be empty');
+                }
+                return new Promises()
             }
-            return new Promises()
-        }
 
 
         //create async mutation handler
@@ -75,8 +78,8 @@
                 }
                 if (!value) return
                 asyncTask(function () {
-                    // console.log(isThenAble)
-                    isThenAble && isFunction(cb) && cb.call(null, value)
+                    // console.log(staticMode, '是否可扩展');
+                    (staticMode || isThenAble) && isFunction(cb) && cb.call(null, value)
                     // console.log(isThenAble, 'asyncTask')
                 })
             }
@@ -111,15 +114,18 @@
     }
 
 
+
     Promises.all = function (queue) {
         if (!Array.isArray(queue)) return;
 
         var results = []
-        var i = queue.length
-        var consume = i
+        var len = queue.length
+        var consume = len
         var done = false
         var item,
             _resolve
+
+        staticMode = true
 
         var onResovle = function (res) {
             mutationProxy(res, this)
@@ -133,6 +139,9 @@
             if (done) return
 
             var index = findIndex(queue, ins)
+
+            // console.log(ins, index, queue, v)
+
             if (index === false) return
             results[index] = v
 
@@ -144,15 +153,16 @@
 
         function untilDone(cb, result, ocurrError) {
             consume--
-
             if (ocurrError || !consume) {
                 cb(result)
                 done = true
+                staticMode = false
             }
         }
 
         asyncTask(function () {
-            while (i--) {
+            _resolve = (deferreds.shift()).onResolve
+            for (var i = 0; i < len; i++) {
                 item = queue[i]
                 if (isInstance(item)) {
                     item.then(onResovle.bind(item), onReject.bind(item))
@@ -163,13 +173,12 @@
                     // ordinary value    
                     results[i] = item
                     untilDone(_resolve, results)
-                };
+                }
             }
+
         })
 
-        return new Promises((resolve) => {
-            _resolve = resolve
-        })
+        return new Promises()
     }
 
 
@@ -188,9 +197,9 @@ var p2 = new Promises((resovle) => {
     }, 1000)
 })
 
-Promises.all([p1, 1, 5, {
+Promises.all([p1, 1, 5, 5, p2, {
     a: 666
-}, p2]).then((result) => {
+}]).then((result) => {
     console.log(result)
 })
 
@@ -207,26 +216,18 @@ var xixi = new Promises((resovle, reject) => {
 
 xixi.then((res) => {
         console.log(res)
-    }, (err) => {
-        console.log(err)
+        return new Promises(resovle => {
+            resovle(666666)
+        })
     })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         setTimeout(() => {
-    //             resovle(777777777)
-    //         }, 1000)
-    //     })
-    // })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         resovle(8888888)
-    //     })
-    // })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         resovle(99999999)
-    //     })
-    // })
+    .then((res) => {
+        console.log(res)
+        return new Promises(resovle => {
+            setTimeout(() => {
+                resovle(777777777)
+            }, 1000)
+        })
+    })
+    .then((res) => {
+        console.log(res)
+    })
