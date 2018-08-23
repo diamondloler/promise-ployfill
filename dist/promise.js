@@ -6,13 +6,15 @@
     } else if (typeof exports === "object" && typeof module !== "undefined") {
         module.exports = factory(root);
     } else {
-        !root.Promise && (root.Promise = factory(root));
+        factory(root)
     }
 })(typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this, function (window) {
+
     var isFunction = function (v) {
         return typeof v === 'function'
     }
-    var getAsyncFunc = function () {
+
+    var asyncTask = (function () {
         return typeof process === 'object' &&
             process !== null &&
             typeof process.nextTick === 'function' &&
@@ -20,180 +22,240 @@
             typeof setImmediate === 'function' &&
             setImmediate ||
             setTimeout;
+    })()
+
+    var findIndex = function (arr, key) {
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] == key) return i
+        }
+        return false
     }
-    var asyncFn = getAsyncFunc()
 
-    
-    var _promise = function (callback) {
-        //记录生成实例的数目
-        this.speciality.modelCount++;
 
-        //mark the result of onResolve or onReject
-        var result
+    var isInstance = function (obj) {
+        return obj && obj instanceof PromisePolyfill
+    }
 
+
+    var PromisePolyfill = function (resolver) {
+
+        var fulfilled = false
+        var rejected = false
+
+        // when resolver trigger reject , isThenAble is false, stop chain calls
+        var isThenAble = false
+
+        // 延迟队列
+        var deferreds = []
+
+        // onfulfilled or onrejected callback push deferreds stack
         this.then = function (onResolve, onReject) {
             if (isFunction(onResolve) || isFunction(onReject)) {
-                var item = {
+                deferreds.push({
                     onResolve: onResolve || null,
                     onReject: onReject || null
-                }
-                this.deferreds.push(item)
-                this.speciality.isThenAble = true
+                })
+                isThenAble = true
+            } else {
+                throw new Error('the arguments of \"promise.then\" can\'t be empty');
             }
-            return new _promise()
+
+            // async/await compatibility
+            resolver && resolver.call(null, resolve, reject)
+
+            return this
         }
 
 
-        //create async mutation function
-        var createMutation = function (type, cb, vm) {
+        //create async mutation handler
+        var createMutationHandler = function (type, cb) {
             return function (value) {
-                if (value instanceof _promise) {
+                if (value instanceof PromisePolyfill) {
                     throw new Error('the value of ' + type + ' should not construtor itself')
                 }
                 if (!value) return
-                asyncFn(function () {
-                    if (vm.speciality.isThenAble) {
-                        isFunction(cb) && cb.call(vm, value)
-                    }
+                asyncTask(function () {
+                    isThenAble && isFunction(cb) && cb.call(null, value)
                 })
             }
         }
 
-        var getDeferred = function (arr) {
+        var popDeferredsStack = function (arr) {
             return arr.length == 0 ? {} : arr.shift()
         }
 
-        var isInstance = function (obj) {
-            return obj && obj instanceof _promise || false
+        // mark the result of onResolve 
+        var result
+        // deferred object
+        var deferred
+
+        //通过内部promise实例resolve的数据，消费当前实例内部的延时队列
+        var onInnerPromiseFulfilled = function (res) {
+            resolve(res)
         }
 
-        var resolve = createMutation('resolve', function (value) {
-            //async run
-            var deferred = getDeferred(this.deferreds)
+        var onInnerPromiseRejected = function (err) {
+            reject(err)
+        }
+
+        var resolve = createMutationHandler('resolve', function (value) {
+            if (rejected) throw Error('can\'t not call resolve, promise is already rejected')
+
+            if (!deferreds.length) return
+
+            deferred = popDeferredsStack(deferreds)
 
             result = deferred.onResolve && deferred.onResolve(value)
-            //决定下一个mutation执行             
-            this.speciality.isThenAble = isInstance(result) || this.speciality.staticMode
-        }, this)
 
-        var reject = createMutation('reject', function (value) {
-            //async run
-            var deferred = getDeferred(this.deferreds)
+            fulfilled = true
+
+            if (isInstance(result)) {
+                isThenAble = true
+                result.then(onInnerPromiseFulfilled, onInnerPromiseRejected)
+            }
+
+        })
+
+        var reject = createMutationHandler('reject', function (value) {
+            if (fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
+
+            deferred = popDeferredsStack(deferreds)
+
             deferred.onReject && deferred.onReject(value)
-            //终止后续promise执行   
-            this.speciality.isThenAble = false
-        }, this)
 
-        callback && callback.call(null, resolve, reject)
-    }
-
-    //延迟对象
-    _promise.prototype.deferreds = []
-
-    //promise特性对象
-    _promise.prototype.speciality = {
-        isThenAble: false,
-        modelCount: 0,
-        results: [],
-        staticMode: false
+            rejected = true
+            isThenAble = false
+        })
     }
 
 
-    _promise.all = function (queues) {
-        if (!queues || !Array.isArray(queues) || queues.length == 0) {
-            throw new TypeError('The 1st arguments must be array that has more than one element')
+    PromisePolyfill.all = function (queue) {
+        if (!Array.isArray(queue)) return;
+
+        var results = []
+        var i = queue.length
+        var consume = i
+        var done = false
+        var item, _resolve
+
+        var onResolved = function (res) {
+            mutationProxy(res, this)
         }
 
-        var proto = this.prototype,
-            deferreds = proto.deferreds,
-            speciality = proto.speciality,
-            results = speciality.results,
-            done = null
-
-        speciality.staticMode = true
-
-        var pushResultsStack = function (v) {
-            v && results.push(v)
+        var onRejected = function (err) {
+            mutationProxy(err, this, true)
         }
 
-        return new _promise(function (resolve) {
-            var distribute = function () {
-                var value = queues.shift()
-                if (value === void 0) {
-                    if (done) {
-                        deferreds.push(done)
-                        resolve(results)
-                    }
-                    return
-                }
-                if (value instanceof _promise) {
-                    value.then((res) => {
-                        pushResultsStack(res)
-                        distribute()
-                    }, (err) => {
-                        //假如发生错误，立即停止递归，记录错误并触发最外层的then回调
-                        pushResultsStack(err)
-                        proto.deferreds = [done]
-                        done = null
-                        resolve(results)
-                        return
-                    })
-                } else if (typeof value !== 'function') {
-                    pushResultsStack(value)
-                    distribute()
-                } else {
-                    throw new TypeError('The array member should not a function')
+        var mutationProxy = function (v, ins, isReject) {
+            if (done) return
+
+            var index = findIndex(queue, ins)
+            if (index === false) return
+            results[index] = v
+
+            var args = isReject ? [results, true] : [results]
+
+            untilDone.apply(null, args)
+        }
+
+
+        function untilDone(result, ocurrError) {
+            consume--
+
+            if (ocurrError || !consume) {
+                _resolve(result)
+                done = true
+            }
+        }
+
+
+        while (i--) {
+            item = queue[i]
+            if (isInstance(item)) {
+                item.then(onResolved.bind(item), onRejected.bind(item))
+            } else if (isFunction(item)) {
+                //       
+                continue;
+            } else {
+                // ordinary value    
+                results[i] = item
+                untilDone(results)
+            };
+        }
+
+
+        return new PromisePolyfill((resolve) => {
+            _resolve = resolve
+        })
+    }
+
+
+    PromisePolyfill.resolve = function (v) {
+        return isInstance(v) ?
+            v :
+            new PromisePolyfill(function (resovle) {
+                resovle(v || 'fulfilled')
+            })
+    }
+
+    PromisePolyfill.reject = function (v) {
+        return new PromisePolyfill(function (resovle, reject) {
+            reject(v || 'rejected')
+        })
+    }
+
+
+    PromisePolyfill.next = function () {
+        var queue = [].slice.call(arguments)
+
+        function next(res, err) {
+            if (err) {
+                //console the error from previous loop include (async, sync)
+                return console.warn(err)
+            }
+
+            if (!queue.length) {
+                //execluted all of queue 
+                return;
+            }
+
+            var fn = queue.shift()
+
+            if (isFunction(fn)) {
+                try {
+                    res !== void 0 ? fn.call(null, next, res) : fn.call(null, next)
+                } catch (error) {
+                    //catch sync error
+                    next(null, error)
                 }
             }
-            //确保promise.all.then最先执行
-            asyncFn(() => {
-                //mark the finally done Object
-                //移出promise.all.then里的回调，记录在done中
-                done = deferreds.shift()
-
-                //递归执行distribute，不同的值，不同逻辑处理，直到延迟队列为空或rejected停止
-                distribute()
-            })
-        })
-    }
-
-    _promise.race = function (queues) {
-        if (!queues || !Array.isArray(queues) || queues.length == 0) {
-            throw new TypeError('The 1st arguments must be array that has more than one element')
         }
 
-        var loop = 0,
-            isRuned = false,
-            currItem;
-        var proto = this.prototype
-        var deferreds = proto.deferreds
-        var speciality = proto.speciality
+        next()
+    }
 
-        speciality.staticMode = true
 
-        return new _promise((resolve, reject) => {
-            asyncFn(() => {
-                var done = deferreds.shift()
-                while (currItem = queues[loop++]) {
-                    if (!(currItem instanceof _promise)) {
-                        throw new TypeError(
-                            'The 1st argument ’s content  must be instance of _promise')
-                    }
-                    currItem.then((res) => {
-                        if (isRuned) return
-                        proto.deferreds = [done]
-                        resolve(res)
-                        isRuned = true
-                    }, (err) => {
-                        if (isRuned) return
-                        proto.deferreds = [done]
-                        reject(err)
-                        isRuned = true
-                    })
-                }
-            })
+    PromisePolyfill.race = function (queue) {
+        if (!Array.isArray(queue)) return;
+        var _resolve
+        var i = queue.length
+        var item
+
+        var onMutated = function (data) {
+            _resolve(data)
+        }
+
+        while (i--) {
+            item = queue[i]
+            if (isInstance(item)) {
+                item.then(onMutated, onMutated)
+            }
+        }
+
+        return new PromisePolyfill(function (resovle) {
+            _resolve = resovle
         })
     }
 
-    return _promise
+    return typeof window.Promise === 'undefined' && (window.Promise = PromisePolyfill)
 })

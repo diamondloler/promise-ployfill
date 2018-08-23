@@ -6,8 +6,7 @@
     } else if (typeof exports === "object" && typeof module !== "undefined") {
         module.exports = factory(root);
     } else {
-        // !root.Promise && (root.Promise = factory(root));
-        root.Promises = factory(root)
+        factory(root)
     }
 })(typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this, function (window) {
 
@@ -34,21 +33,19 @@
 
 
     var isInstance = function (obj) {
-        return obj && obj instanceof Promises
+        return obj && obj instanceof PromisePolyfill
     }
 
-    var count = 0
 
+    var PromisePolyfill = function (resolver) {
 
-    var Promises = function (callback) {
-      
         var fulfilled = false
         var rejected = false
 
-        // 可延展性
+        // when resolver trigger reject , isThenAble is false, stop chain calls
         var isThenAble = false
 
-        // 延迟对象
+        // 延迟队列
         var deferreds = []
 
         // onfulfilled or onrejected callback push deferreds stack
@@ -58,26 +55,27 @@
                     onResolve: onResolve || null,
                     onReject: onReject || null
                 })
-                console.log(deferreds, count, '实例')
                 isThenAble = true
             } else {
                 throw new Error('the arguments of \"promise.then\" can\'t be empty');
             }
-            return new Promises()
+
+            // async/await compatibility
+            resolver && resolver.call(null, resolve, reject)
+
+            return this
         }
 
 
         //create async mutation handler
         var createMutationHandler = function (type, cb) {
             return function (value) {
-                if (value instanceof Promises) {
+                if (value instanceof PromisePolyfill) {
                     throw new Error('the value of ' + type + ' should not construtor itself')
                 }
                 if (!value) return
                 asyncTask(function () {
-                    // console.log(isThenAble)
                     isThenAble && isFunction(cb) && cb.call(null, value)
-                    // console.log(isThenAble, 'asyncTask')
                 })
             }
         }
@@ -91,41 +89,60 @@
         // deferred object
         var deferred
 
+        //通过内部promise实例resolve的数据，消费当前实例内部的延时队列
+        var onInnerPromiseFulfilled = function (res) {
+            resolve(res)
+        }
+
+        var onInnerPromiseRejected = function (err) {
+            reject(err)
+        }
+
         var resolve = createMutationHandler('resolve', function (value) {
             if (rejected) throw Error('can\'t not call resolve, promise is already rejected')
+
+            if (!deferreds.length) return
+
             deferred = popDeferredsStack(deferreds)
+
             result = deferred.onResolve && deferred.onResolve(value)
+
             fulfilled = true
-            isThenAble = isInstance(result)
+
+            if (isInstance(result)) {
+                isThenAble = true
+                result.then(onInnerPromiseFulfilled, onInnerPromiseRejected)
+            }
+
         })
 
         var reject = createMutationHandler('reject', function (value) {
             if (fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
+
             deferred = popDeferredsStack(deferreds)
+
             deferred.onReject && deferred.onReject(value)
+
             rejected = true
             isThenAble = false
         })
-
-        callback && callback.call(null, resolve, reject)
     }
 
 
-    Promises.all = function (queue) {
+    PromisePolyfill.all = function (queue) {
         if (!Array.isArray(queue)) return;
 
         var results = []
         var i = queue.length
         var consume = i
         var done = false
-        var item,
-            _resolve
+        var item, _resolve
 
-        var onResovle = function (res) {
+        var onResolved = function (res) {
             mutationProxy(res, this)
         }
 
-        var onReject = function (err) {
+        var onRejected = function (err) {
             mutationProxy(err, this, true)
         }
 
@@ -136,97 +153,109 @@
             if (index === false) return
             results[index] = v
 
-            var args = isReject ? [_resolve, results, true] : [_resolve, results]
+            var args = isReject ? [results, true] : [results]
 
             untilDone.apply(null, args)
         }
 
 
-        function untilDone(cb, result, ocurrError) {
+        function untilDone(result, ocurrError) {
             consume--
 
             if (ocurrError || !consume) {
-                cb(result)
+                _resolve(result)
                 done = true
             }
         }
 
-        asyncTask(function () {
-            while (i--) {
-                item = queue[i]
-                if (isInstance(item)) {
-                    item.then(onResovle.bind(item), onReject.bind(item))
-                } else if (isFunction(item)) {
-                    //       
-                    continue;
-                } else {
-                    // ordinary value    
-                    results[i] = item
-                    untilDone(_resolve, results)
-                };
-            }
-        })
 
-        return new Promises((resolve) => {
+        while (i--) {
+            item = queue[i]
+            if (isInstance(item)) {
+                item.then(onResolved.bind(item), onRejected.bind(item))
+            } else if (isFunction(item)) {
+                //       
+                continue;
+            } else {
+                // ordinary value    
+                results[i] = item
+                untilDone(results)
+            };
+        }
+
+
+        return new PromisePolyfill((resolve) => {
             _resolve = resolve
         })
     }
 
 
-    return Promises
+    PromisePolyfill.resolve = function (v) {
+        return isInstance(v) ?
+            v :
+            new PromisePolyfill(function (resovle) {
+                resovle(v || 'fulfilled')
+            })
+    }
+
+    PromisePolyfill.reject = function (v) {
+        return new PromisePolyfill(function (resovle, reject) {
+            reject(v || 'rejected')
+        })
+    }
+
+
+    PromisePolyfill.next = function () {
+        var queue = [].slice.call(arguments)
+
+        function next(res, err) {
+            if (err) {
+                //console the error from previous loop include (async, sync)
+                return console.warn(err)
+            }
+
+            if (!queue.length) {
+                //execluted all of queue 
+                return;
+            }
+
+            var fn = queue.shift()
+
+            if (isFunction(fn)) {
+                try {
+                    res !== void 0 ? fn.call(null, next, res) : fn.call(null, next)
+                } catch (error) {
+                    //catch sync error
+                    next(null, error)
+                }
+            }
+        }
+
+        next()
+    }
+
+
+    PromisePolyfill.race = function (queue) {
+        if (!Array.isArray(queue)) return;
+        var _resolve
+        var i = queue.length
+        var item
+
+        var onMutated = function (data) {
+            _resolve(data)
+        }
+
+        while (i--) {
+            item = queue[i]
+            if (isInstance(item)) {
+                item.then(onMutated, onMutated)
+            }
+        }
+
+        return new PromisePolyfill(function (resovle) {
+            _resolve = resovle
+        })
+    }
+
+    return typeof window.Promise === 'undefined' && (window.Promise = PromisePolyfill)
 })
-
-var p1 = new Promises((resovle, reject) => {
-    setTimeout(() => {
-        resovle('加速度')
-    }, 500)
-})
-
-var p2 = new Promises((resovle) => {
-    setTimeout(() => {
-        resovle(800)
-    }, 1000)
-})
-
-Promises.all([p1, 1, 5, {
-    a: 666
-}, p2]).then((result) => {
-    console.log(result)
-})
-
-
-
-
-
-var xixi = new Promises((resovle, reject) => {
-    setTimeout(() => {
-        resovle(1)
-        // reject(66)
-    }, 1000)
-})
-
-xixi.then((res) => {
-        console.log(res)
-    }, (err) => {
-        console.log(err)
-    })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         setTimeout(() => {
-    //             resovle(777777777)
-    //         }, 1000)
-    //     })
-    // })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         resovle(8888888)
-    //     })
-    // })
-    // .then((res) => {
-    //     console.log(res)
-    //     return new Promises(resovle => {
-    //         resovle(99999999)
-    //     })
-    // })
