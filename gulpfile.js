@@ -12,13 +12,18 @@ gulp.task('source', function () {
 })
 
 gulp.task('js', function () {
-    return gulp.src(['src/promise.js'])
+    return gulp.src(['./src/runtime.js', 'src/promise.js', './src/work.js'])
         .pipe(sourcemaps.init({
             loadMaps: true
         }))
         .pipe(concat('promise-ployfill.min.js'))
         .pipe(gBabel({
-            presets: ['es2015']
+            babelrc: false,
+            presets: ['es2015'],
+            plugins: [
+                'syntax-async-functions',
+                'transform-regenerator',
+            ]
         }))
         .pipe(uglify())
         .pipe(sourcemaps.write('./'))

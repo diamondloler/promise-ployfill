@@ -184,7 +184,7 @@
         }
 
 
-        return new PromisePolyfill((resolve) => {
+        return new PromisePolyfill(function (resolve) {
             _resolve = resolve
         })
     }
@@ -257,5 +257,5 @@
         })
     }
 
-    return typeof window.Promise === 'undefined' && (window.Promise = PromisePolyfill)
+    return window.Promise || (window.Promise = PromisePolyfill)
 })
