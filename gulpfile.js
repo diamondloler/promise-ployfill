@@ -12,7 +12,7 @@ gulp.task('source', function () {
 })
 
 gulp.task('js', function () {
-    return gulp.src(['./src/runtime.js', 'src/promise.js', './src/work.js'])
+    return gulp.src(['./src/runtime.js', 'src/promise.js'])
         .pipe(sourcemaps.init({
             loadMaps: true
         }))

@@ -89,7 +89,7 @@
         // deferred object
         var deferred
 
-        //通过内部promise实例resolve的数据，消费当前实例内部的延时队列
+        //通过内部promise实例resolve的数据，消费当前实例延时队列
         var onInnerPromiseFulfilled = function (res) {
             resolve(res)
         }
@@ -99,12 +99,11 @@
         }
 
         var resolve = createMutationHandler('resolve', function (value) {
+            if (!deferreds.length) return
+            
             if (rejected) throw Error('can\'t not call resolve, promise is already rejected')
 
-            if (!deferreds.length) return
-
             deferred = popDeferredsStack(deferreds)
-
             result = deferred.onResolve && deferred.onResolve(value)
 
             fulfilled = true
@@ -120,7 +119,6 @@
             if (fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
 
             deferred = popDeferredsStack(deferreds)
-
             deferred.onReject && deferred.onReject(value)
 
             rejected = true
