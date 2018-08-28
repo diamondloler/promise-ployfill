@@ -73,7 +73,9 @@
                 if (value instanceof PromisePolyfill) {
                     throw new Error('the value of ' + type + ' should not construtor itself')
                 }
+
                 if (!value) return
+
                 asyncTask(function () {
                     isThenAble && isFunction(cb) && cb.call(null, value)
                 })
@@ -107,10 +109,14 @@
             result = deferred.onResolve && deferred.onResolve(value)
 
             fulfilled = true
+            isThenAble = true
 
             if (isInstance(result)) {
-                isThenAble = true
                 result.then(onInnerPromiseFulfilled, onInnerPromiseRejected)
+            } else { 
+                // empty deferreds if result of ins.then not a instance of Promise 
+                // and continue call then in the chain
+                resolve()
             }
 
         })
@@ -206,7 +212,7 @@
     PromisePolyfill.next = function () {
         var queue = [].slice.call(arguments)
 
-        function next(res, err) {
+        function next(err, res) {
             if (err) {
                 //console the error from previous loop include (async, sync)
                 return console.warn(err)
@@ -223,8 +229,9 @@
                 try {
                     res !== void 0 ? fn.call(null, next, res) : fn.call(null, next)
                 } catch (error) {
+                    
                     //catch sync error
-                    next(null, error)
+                    next(error)
                 }
             }
         }

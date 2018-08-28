@@ -2,17 +2,31 @@
         //     console.log('哈哈哈哈')
         // })
 
-        var p1 = new Promise(function (resovle, reject) {
-            setTimeout(function () {
-                resovle('加速度')
-            }, 1000)
-        })
+        // var p1 = new Promise(function (resovle, reject) {
+        //     setTimeout(function () {
+        //         resovle('加速度')
+        //     }, 1000)
+        // })
 
         var p2 = new Promise(function (resovle) {
             setTimeout(function () {
                 resovle(800)
             }, 500)
-        })
+        }).then((res) => {
+            console.log(res)
+        }).then(
+            (res) => {
+                console.log(1)
+            }
+        ).then(
+            (res) => {
+                console.log(4)
+            }
+        ).then(
+            (res) => {
+                console.log(7)
+            }
+        )
 
 
         // Promise.race([p1, p2]).then((res) => {
@@ -37,14 +51,14 @@
         //     console.log(result)
         // })
 
-        async function haha () {
-           var res = await p1;
-           console.log(res);
-           var res2 = await p2;
-           console.log(res2);
-        }
+        // async function haha () {
+        //    var res = await p1;
+        //    console.log(res);
+        //    var res2 = await p2;
+        //    console.log(res2);
+        // }
 
-        haha();
+        // haha();
 
 
 
