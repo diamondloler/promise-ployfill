@@ -1,10 +1,10 @@
 (function (root, factory) {
-    if (typeof define === 'function' && define.amd) {
+    if (typeof module === "object") {
+        module.exports = factory(root);
+    } else if (typeof define === 'function' && define.amd) {
         define(function () {
             return factory(root);
         });
-    } else if (typeof exports === "object" && typeof module !== "undefined") {
-        module.exports = factory(root);
     } else {
         factory(root)
     }

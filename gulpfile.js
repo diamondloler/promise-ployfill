@@ -12,19 +12,19 @@ gulp.task('source', function () {
 })
 
 gulp.task('js', function () {
-    return gulp.src(['./src/runtime.js', 'src/promise.js'])
+    return gulp.src(['src/promise.js'])
         .pipe(sourcemaps.init({
             loadMaps: true
         }))
         .pipe(concat('promise-ployfill.min.js'))
-        .pipe(gBabel({
-            babelrc: false,
-            presets: ['es2015'],
-            plugins: [
-                'syntax-async-functions',
-                'transform-regenerator',
-            ]
-        }))
+        // .pipe(gBabel({
+        //     babelrc: false,
+        //     presets: ['es2015'],
+        //     plugins: [
+        //         'syntax-async-functions',
+        //         'transform-regenerator',
+        //     ]
+        // }))
         .pipe(uglify())
         .pipe(sourcemaps.write('./'))
         .pipe(gulp.dest('./dist'))
