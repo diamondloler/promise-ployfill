@@ -14,15 +14,16 @@
         return typeof v === 'function'
     }
 
+
     var asyncTask = (function () {
         return typeof process === 'object' &&
-            process !== null &&
             typeof process.nextTick === 'function' &&
             process.nextTick ||
             typeof setImmediate === 'function' &&
             setImmediate ||
             setTimeout;
     })()
+
 
     var findIndex = function (arr, key) {
         for (var i = 0; i < arr.length; i++) {
@@ -34,6 +35,14 @@
 
     var isInstance = function (obj) {
         return obj && obj instanceof PromisePolyfill
+    }
+
+
+    var _toString = Object.prototype.toString
+
+
+    function isPlainObject (obj) {
+        return _toString.call(obj) === '[object Object]'
     }
 
 
@@ -195,12 +204,19 @@
 
 
     PromisePolyfill.resolve = function (v) {
-        return isInstance(v) ?
-            v :
-            new PromisePolyfill(function (resovle) {
-                resovle(v || 'fulfilled')
-            })
+        if (isPlainObject(v) && typeof v.then === 'function') {
+            return new PromisePolyfill(v.then)
+        }
+
+        if (isInstance(v)) {
+            return v
+        }
+
+        return new PromisePolyfill(function (resovle) {
+            resovle(v || 'fulfilled')
+        })
     }
+
 
     PromisePolyfill.reject = function (v) {
         return new PromisePolyfill(function (resovle, reject) {
@@ -229,7 +245,6 @@
                 try {
                     res !== void 0 ? fn.call(null, next, res) : fn.call(null, next)
                 } catch (error) {
-                    
                     //catch sync error
                     next(error)
                 }

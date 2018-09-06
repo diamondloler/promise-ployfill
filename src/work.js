@@ -29,6 +29,18 @@
         )
 
 
+        var thenable = {
+            then: function (onf, onr) {
+                onf('哈哈哈哈')
+            }
+        }
+
+
+        console.log(Promise.resolve(thenable).then((res) => {
+            console.log(res)
+        }))
+
+
         // Promise.race([p1, p2]).then((res) => {
         //     console.log(res)
         // })
