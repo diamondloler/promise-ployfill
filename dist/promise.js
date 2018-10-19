@@ -40,105 +40,108 @@
 
     var _toString = Object.prototype.toString
 
-
-    function isPlainObject (obj) {
+    var isPlainObject = function (obj) {
         return _toString.call(obj) === '[object Object]'
     }
 
+    var isNativeFn = function (fn) {
+        if(!isFunction(fn)) return false;
+        var fnStr = fn.toString()
+        var flag = fnStr.slice(fnStr.indexOf('[') + 1, fnStr.lastIndexOf(']'))
+        return flag === 'native code';
+    }
+
+
+    //create a async mutation func
+    var createAsyncMutation = function (type, cb) {
+        return function (value) {
+            if (isInstance(value)) {
+                throw new TypeError('the value of ' + type + ' should not the promise itself')
+            }
+
+            var ins = this
+            asyncTask(function () {
+                ins.isThenable && cb.call(ins, value)
+            })
+        }
+    }
+
+    var popDeferredsStack = function (arr) {
+        return arr.length == 0 ? {} : arr.shift()
+    }
+
+    var uid = 0
 
     var PromisePolyfill = function (resolver) {
+        if (!isFunction(resolver)) {
+            throw new Error('The resolver must be a function');
+        }
+        this.uid = uid++
+        this.resolver = resolver
+        this.fulfilled = false 
+        this.rejected = false 
+        this.isThenable = false  //赋予能力可以使 promise 从 pending 状态 突变到 fulfilled or rejected
+        this.deferreds = [],
+        this.$deferreds = null
+    }
 
-        var fulfilled = false
-        var rejected = false
+    PromisePolyfill.prototype.reject = createAsyncMutation('reject', function (value) {
+        if (this.fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
+        this.rejected = true
+        this.isThenable = false
 
-        // when resolver trigger reject , isThenAble is false, stop chain calls
-        var isThenAble = false
+        deferred = popDeferredsStack(this.deferreds)
+        if (!deferred.onReject) {
+            throw new Error('Uncaught (in promise)' + ' ' + value)
+        }
+        deferred.onReject(value)
+    })
 
-        // 延迟队列
-        var deferreds = []
 
-        // onfulfilled or onrejected callback push deferreds stack
-        this.then = function (onResolve, onReject) {
-            if (isFunction(onResolve) || isFunction(onReject)) {
-                deferreds.push({
-                    onResolve: onResolve || null,
-                    onReject: onReject || null
-                })
-                isThenAble = true
-            } else {
-                throw new Error('the arguments of \"promise.then\" can\'t be empty');
-            }
+    PromisePolyfill.prototype.resolve = createAsyncMutation('resolve', function (value) {
+        if (!this.deferreds.length) return
 
-            // async/await compatibility
-            resolver && resolver.call(null, resolve, reject)
+        if (this.rejected) throw Error('can\'t not call resolve, promise is already rejected')
+        this.fulfilled = true
+        this.isThenable = true
 
-            return this
+        var deferred = popDeferredsStack(this.deferreds)
+        var result = deferred.onResolve && deferred.onResolve(value)
+        if (isInstance(result)) {
+            //构造魔法回调，利用内部的promise实例，消化本实例自身的延时队列，实现链式效果
+            result.then(this.runResolve.bind(this), this.runReject.bind(this))
+        } else {
+            //回调的结果不是promise的实例，但延时队列又没消费完的时候，会继续递归地执行resolve进行消费
+            this.resolve()
         }
 
+    })
 
-        //create async mutation handler
-        var createMutationHandler = function (type, cb) {
-            return function (value) {
-                if (value instanceof PromisePolyfill) {
-                    throw new Error('the value of ' + type + ' should not construtor itself')
-                }
+    PromisePolyfill.prototype.runResolve = function (res) {
+        this.resolve(res)
+    }
 
-                if (!value) return
+    PromisePolyfill.prototype.runReject = function (res) {
+        this.reject(res)
+    }
 
-                asyncTask(function () {
-                    isThenAble && isFunction(cb) && cb.call(null, value)
-                })
-            }
+
+    PromisePolyfill.prototype.then = function (onResolve, onReject) {
+        if (isFunction(onResolve) || isFunction(onReject)) {
+            this.deferreds.push({
+                onResolve: onResolve || null,
+                onReject: onReject || null
+            })
+            this.isThenable = true
+        } else {
+            throw new Error('the arguments of \"promise.then\" can\'t be empty');
         }
 
-        var popDeferredsStack = function (arr) {
-            return arr.length == 0 ? {} : arr.shift()
-        }
+        // async/await compatibility
+        this.resolver && this.resolver(this.resolve.bind(this), this.reject.bind(this))
+        this.resolver = null
 
-        // mark the result of onResolve 
-        var result
-        // deferred object
-        var deferred
-
-        //通过内部promise实例resolve的数据，消费当前实例延时队列
-        var onInnerPromiseFulfilled = function (res) {
-            resolve(res)
-        }
-
-        var onInnerPromiseRejected = function (err) {
-            reject(err)
-        }
-
-        var resolve = createMutationHandler('resolve', function (value) {
-            if (!deferreds.length) return
-            
-            if (rejected) throw Error('can\'t not call resolve, promise is already rejected')
-
-            deferred = popDeferredsStack(deferreds)
-            result = deferred.onResolve && deferred.onResolve(value)
-
-            fulfilled = true
-            isThenAble = true
-
-            if (isInstance(result)) {
-                result.then(onInnerPromiseFulfilled, onInnerPromiseRejected)
-            } else { 
-                // empty deferreds if result of ins.then not a instance of Promise 
-                // and continue call then in the chain
-                resolve()
-            }
-
-        })
-
-        var reject = createMutationHandler('reject', function (value) {
-            if (fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
-
-            deferred = popDeferredsStack(deferreds)
-            deferred.onReject && deferred.onReject(value)
-
-            rejected = true
-            isThenAble = false
-        })
+        return this
     }
 
 
@@ -186,9 +189,6 @@
             item = queue[i]
             if (isInstance(item)) {
                 item.then(onResolved.bind(item), onRejected.bind(item))
-            } else if (isFunction(item)) {
-                //       
-                continue;
             } else {
                 // ordinary value    
                 results[i] = item
@@ -213,58 +213,26 @@
         }
 
         return new PromisePolyfill(function (resovle) {
-            resovle(v || 'fulfilled')
+            resovle(v)
         })
     }
 
 
     PromisePolyfill.reject = function (v) {
         return new PromisePolyfill(function (resovle, reject) {
-            reject(v || 'rejected')
+            reject(v)
         })
     }
-
-
-    PromisePolyfill.next = function () {
-        var queue = [].slice.call(arguments)
-
-        function next(err, res) {
-            if (err) {
-                //console the error from previous loop include (async, sync)
-                return console.warn(err)
-            }
-
-            if (!queue.length) {
-                //execluted all of queue 
-                return;
-            }
-
-            var fn = queue.shift()
-
-            if (isFunction(fn)) {
-                try {
-                    res !== void 0 ? fn.call(null, next, res) : fn.call(null, next)
-                } catch (error) {
-                    //catch sync error
-                    next(error)
-                }
-            }
-        }
-
-        next()
-    }
-
 
     PromisePolyfill.race = function (queue) {
         if (!Array.isArray(queue)) return;
         var _resolve
-        var i = queue.length
-        var item
-
         var onMutated = function (data) {
             _resolve(data)
         }
 
+        var i = queue.length
+        var item
         while (i--) {
             item = queue[i]
             if (isInstance(item)) {
@@ -277,5 +245,6 @@
         })
     }
 
-    return window.Promise || (window.Promise = PromisePolyfill)
+    //return window.Promise = PromisePolyfill
+    return isNativeFn(window.Promise) && window.Promise || (window.Promise = PromisePolyfill)
 })
