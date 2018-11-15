@@ -4,7 +4,7 @@
   "description": "a light lib for promise-ployfill",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "keywords": [
     "promise",
@@ -24,6 +24,8 @@
     "gulp-sourcemaps": "^2.6.3",
     "gulp-uglify": "^3.0.0",
     "gulp-util": "^3.0.8",
-    "pump": "^3.0.0"
+    "jest": "^23.6.0",
+    "pump": "^3.0.0",
+    "sinon": "^7.1.1"
   }
 }

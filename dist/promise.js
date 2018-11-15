@@ -1,11 +1,14 @@
 (function (root, factory) {
-    if (typeof module === "object") {
+    if (typeof module === "object" && module.exports) {
+        // like commonjs
         module.exports = factory(root);
     } else if (typeof define === 'function' && define.amd) {
+        // AMD
         define(function () {
             return factory(root);
         });
     } else {
+        // Global
         factory(root)
     }
 })(typeof global !== 'undefined' ? global : typeof window !== 'undefined' ? window : this, function (window) {
@@ -45,7 +48,7 @@
     }
 
     var isNativeFn = function (fn) {
-        if(!isFunction(fn)) return false;
+        if (!isFunction(fn)) return false;
         var fnStr = fn.toString()
         var flag = fnStr.slice(fnStr.indexOf('[') + 1, fnStr.lastIndexOf(']'))
         return flag === 'native code';
@@ -78,19 +81,19 @@
         }
         this.uid = uid++
         this.resolver = resolver
-        this.fulfilled = false 
-        this.rejected = false 
-        this.isThenable = false  //赋予能力可以使 promise 从 pending 状态 突变到 fulfilled or rejected
-        this.deferreds = [],
-        this.$deferreds = null
+        this.fulfilled = false
+        this.rejected = false
+        this.isThenable = false //赋予能力可以使 promise 从 pending 状态 突变到 fulfilled or rejected
+        this.deferreds = []
     }
 
     PromisePolyfill.prototype.reject = createAsyncMutation('reject', function (value) {
         if (this.fulfilled) throw Error('can\'t not call reject, promise is already fulfilled')
+
         this.rejected = true
         this.isThenable = false
 
-        deferred = popDeferredsStack(this.deferreds)
+        var deferred = popDeferredsStack(this.deferreds)
         if (!deferred.onReject) {
             throw new Error('Uncaught (in promise)' + ' ' + value)
         }
@@ -102,11 +105,13 @@
         if (!this.deferreds.length) return
 
         if (this.rejected) throw Error('can\'t not call resolve, promise is already rejected')
+
         this.fulfilled = true
         this.isThenable = true
 
         var deferred = popDeferredsStack(this.deferreds)
         var result = deferred.onResolve && deferred.onResolve(value)
+
         if (isInstance(result)) {
             //构造魔法回调，利用内部的promise实例，消化本实例自身的延时队列，实现链式效果
             result.then(this.runResolve.bind(this), this.runReject.bind(this))
@@ -144,6 +149,10 @@
         return this
     }
 
+    PromisePolyfill.prototype.catch = function (rejected) {
+        this.then(null, rejected)
+    }
+
 
     PromisePolyfill.all = function (queue) {
         if (!Array.isArray(queue)) return;
@@ -167,8 +176,8 @@
 
             var index = findIndex(queue, ins)
             if (index === false) return
-            results[index] = v
 
+            results[index] = v
             var args = isReject ? [results, true] : [results]
 
             untilDone.apply(null, args)
@@ -204,7 +213,7 @@
 
 
     PromisePolyfill.resolve = function (v) {
-        if (isPlainObject(v) && typeof v.then === 'function') {
+        if (isPlainObject(v) && !isInstance(v) && typeof v.then === 'function') {
             return new PromisePolyfill(v.then)
         }
 
@@ -245,6 +254,6 @@
         })
     }
 
-    //return window.Promise = PromisePolyfill
+    // return window.Promise = PromisePolyfill
     return isNativeFn(window.Promise) && window.Promise || (window.Promise = PromisePolyfill)
 })
