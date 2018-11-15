@@ -41,7 +41,7 @@ describe('This is a testing for Instance of PromisePolyfill', () => {
         })
     })
 
-    it('It can chainly call by fn of then without any return value', () => {
+    it('It can chainly call by fn of then without any return values', () => {
         var log = sinon.spy(console.log)
         return promise.then(() => {
             log('1')
