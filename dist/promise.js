@@ -69,7 +69,7 @@
         }
     }
 
-    var popDeferredsStack = function (arr) {
+    var consumeDeferredQueue = function (arr) {
         return arr.length == 0 ? {} : arr.shift()
     }
 
@@ -93,7 +93,7 @@
         this.rejected = true
         this.isThenable = false
 
-        var deferred = popDeferredsStack(this.deferreds)
+        var deferred = consumeDeferredQueue(this.deferreds)
         if (!deferred.onReject) {
             throw new Error('Uncaught (in promise)' + ' ' + value)
         }
@@ -109,7 +109,7 @@
         this.fulfilled = true
         this.isThenable = true
 
-        var deferred = popDeferredsStack(this.deferreds)
+        var deferred = consumeDeferredQueue(this.deferreds)
         var result = deferred.onResolve && deferred.onResolve(value)
 
         if (isInstance(result)) {
