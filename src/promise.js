@@ -73,13 +73,20 @@
         return arr.length == 0 ? {} : arr.shift()
     }
 
-    var uid = 0
+    // Function.prototype.bind polyfill
+    var bind = function (fn, context) {
+        return function () {
+            fn.apply(context, arguments)
+        }
+    }
+
+    var promiseId = 0
 
     var PromisePolyfill = function (resolver) {
         if (!isFunction(resolver)) {
             throw new Error('The resolver must be a function');
         }
-        this.uid = uid++
+        this.promiseId = promiseId++
         this.resolver = resolver
         this.fulfilled = false
         this.rejected = false
@@ -114,7 +121,7 @@
 
         if (isInstance(result)) {
             //构造魔法回调，利用内部的promise实例，消化本实例自身的延时队列，实现链式效果
-            result.then(this.runResolve.bind(this), this.runReject.bind(this))
+            result.then(bind(this.runResolve, this), bind(this.runReject, this))
         } else {
             //回调的结果不是promise的实例，但延时队列又没消费完的时候，会继续递归地执行resolve进行消费
             this.resolve()
@@ -143,14 +150,16 @@
         }
 
         // async/await compatibility
-        this.resolver && this.resolver(this.resolve.bind(this), this.reject.bind(this))
+        this.resolver && this.resolver(bind(this.resolve, this), bind(this.reject, this))
         this.resolver = null
 
         return this
     }
 
-    PromisePolyfill.prototype.catch = function (rejected) {
-        this.then(null, rejected)
+
+    //Under the IE9 Version, the 'catch' is the keyword to browser;
+    PromisePolyfill.prototype['catch'] = function (rejected) {
+        this.then(null, rejected);
     }
 
 
@@ -197,7 +206,7 @@
         while (i--) {
             item = queue[i]
             if (isInstance(item)) {
-                item.then(onResolved.bind(item), onRejected.bind(item))
+                item.then(bind(onResolved, item), bind(onRejected, item))
             } else {
                 // ordinary value    
                 results[i] = item
@@ -254,6 +263,6 @@
         })
     }
 
-    // return window.Promise = PromisePolyfill
+    //return window.Promise = PromisePolyfill
     return isNativeFn(window.Promise) && window.Promise || (window.Promise = PromisePolyfill)
 })

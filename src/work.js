@@ -1,17 +1,15 @@
 console.log(Promise.toString())
 
 
-var p3 = new Promise((resovle) => {
-    setTimeout(() => {
+var p3 = new Promise(function (resovle) {
+    setTimeout(function () {
         resovle(3)
-    }, 100)
+    }, 1000)
 })
 
-async function test() {
-    var plianValue2 = await Promise.resolve(p3)
-    console.log(plianValue2)
-}
+p3.then(function (res) {
+    console.log(res)
+})
 
-test()
 
 //console.log(test())
